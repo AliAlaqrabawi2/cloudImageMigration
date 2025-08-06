@@ -5,8 +5,6 @@ const APP_IDS = require('./AppIds');
 
 const BATCH_SIZE = Number(process.env.BATCH_SIZE);
 const STOP_ON_FAILURE = process.env.STOP_ON_FAILURE;
-const COLLECTION_NAME = process.env.COLLECTION_NAME;
-
 
 function findCloudImagePaths(obj, path = '') {
   const results = [];
@@ -30,18 +28,22 @@ function findCloudImagePaths(obj, path = '') {
   return results;
 }
 
-const processBatch = async function (docs, appId, stats, db) {
+
+const processBatch = async function (docs, appId, stats, db, collectionName) {
   const bulkOps = [];
 
   for (const doc of docs) {
     if (doc && doc.data) {
       const cloudImagePaths = findCloudImagePaths(doc.data);
+
       if (cloudImagePaths.length > 0) {
         stats.totalProcessed++;
 
         const setObj = {};
+
         for (const { path, url } of cloudImagePaths) {
           const newUrl = replaceCloudImgURLs(url);
+
           if (newUrl !== url) {
             setObj[`data.${path}`] = newUrl;
           }
@@ -62,89 +64,111 @@ const processBatch = async function (docs, appId, stats, db) {
     }
   }
 
+
   try {
     if (bulkOps.length > 0) {
-      await db.collection(COLLECTION_NAME).bulkWrite(bulkOps);
+      console.log(bulkOps.length);
+
+
+      await db.collection(collectionName).bulkWrite(bulkOps);
     }
   } catch (e) {
-    console.log(`App ${appId} - Bulk write error: ${e}`);
+    console.error(`App ${appId} - Bulk write error in ${collectionName}: ${e}`);
+    logger.error(`❌ Bulk write failed for ${collectionName} - App ${appId}: ${e.stack}`);
     stats.failedCount += bulkOps.length;
+
     if (STOP_ON_FAILURE) {
-      throw new Error(`Processing stopped due to error in app ${appId}`);
+      throw new Error(`Stopping due to failure in ${collectionName} for app ${appId}`);
     }
   }
 
   return stats;
 };
 
-const processAllApps = async function(db) {
-  const results = {};
+const processAppForCollection = async (db, collectionName, appId) => {
+  const totalRecords = await db.collection(collectionName).count({ appId });
+  console.log(`Total records for app ${appId}: ${totalRecords}`);
 
-  for(const appId of APP_IDS) {
-   console.log(`Starting processing for app: ${appId}`);
-    const totalRecords = await db.collection(COLLECTION_NAME).count({ appId: appId });
-   console.log(`Total records for app ${appId}: ${totalRecords}`);
 
-    let skip = 0;
-    let hasMore = true;
-    const stats = {
-      totalProcessed: 0,
-      successCount: 0,
-      failedCount: 0
+  let skip = 0;
+  let hasMore = true;
+  const stats = {
+    totalProcessed: 0,
+    successCount: 0,
+    failedCount: 0
+  };
+
+  try {
+    while (hasMore) {
+      const batch = await db.collection(collectionName)
+        .find({ appId })
+        .skip(skip)
+        .limit(BATCH_SIZE)
+        .toArray();
+
+      if (batch.length === 0) {
+        hasMore = false;
+        continue;
+      }
+
+      await processBatch(batch, appId, stats, db);
+      skip += BATCH_SIZE;
+    }
+
+    console.log(`✅ [${collectionName}] Finished app: ${appId}`);
+    return {
+      status: 'completed',
+      stats
     };
 
-    try {
-      while(hasMore) {
-        const batch = await db.collection(COLLECTION_NAME)
-          .find({appId})
-          .skip(skip)
-          .limit(BATCH_SIZE)
-          .toArray();
+  } catch (e) {
+    console.error(`❌ [${collectionName}] Failed app: ${appId}: ${e}`);
+    logger.error(`❌ Failed processing app ${appId}: ${e.stack}`);
+    return {
+      status: 'failed',
+      error: e.message,
+      stats
+    };
+  }
+};
 
+const processAllAppsSequentially = async (db) => {
+  const results = {};
 
-        if(batch.length === 0) {
-          hasMore = false;
-          continue;
+  for (const appId of APP_IDS) {
+    console.log(`🚀 Starting app: ${appId}`);
+
+    const collections = ['userData', 'pluginData'];
+    results[appId] = {};
+
+    for (const collectionName of collections) {
+      console.log(`→ Processing collection: ${collectionName}`);
+
+      try {
+        const result = await processAppForCollection(db, collectionName, appId);
+        results[appId][collectionName] = result;
+
+        if (result.status === 'failed' && STOP_ON_FAILURE) {
+          console.log(`🛑 Stopping because of failure on ${appId} - ${collectionName}`);
+          return results;
         }
+      } catch (e) {
+        console.error(`❌ Unexpected error processing ${appId} - ${collectionName}:`, e);
+        results[appId][collectionName] = {
+          status: 'failed',
+          error: e.message || e.toString(),
+          stats: {}
+        };
 
-        const percentageDone = ((skip + batch.length) / totalRecords * 100).toFixed(2);
-        console.log(`Processing batch of ${batch.length} documents (skip: ${skip}, ${percentageDone}% done) for appId ${appId}`);
-        await processBatch(batch, appId, stats, db);
-
-        skip += BATCH_SIZE;
-      }
-
-      results[appId] = {
-        status: 'completed',
-        stats: stats
-      };
-
-    } catch(e) {
-      console.log(`Failed processing app ${appId}: ${e}`);
-      logger.error(`❌ Failed to fetch users batch: ${e.stack}`);
-      results[appId] = {
-        status: 'failed',
-        error: e.message,
-        stats: stats
-      };
-
-      if(STOP_ON_FAILURE) {
-        break;
+        if (STOP_ON_FAILURE) {
+          console.log(`🛑 Stopping due to unexpected error on ${appId} - ${collectionName}`);
+          return results;
+        }
       }
     }
   }
 
-  console.log('======= FINAL SUMMARY =======');
-  for(const [appId, result] of Object.entries(results)) {
-    console.log(`App: ${appId}`);
-    console.log(`Status: ${result.status}`);
-    console.log(`Total Processed: ${result.stats.totalProcessed}`);
-    console.log(`Successful Updates: ${result.stats.successCount}`);
-    console.log(`Failed Updates: ${result.stats.failedCount}`);
-    if(result.error) {
-      console.log(`Error: ${result.error}`);
-    }
-  }
+  return results;
 };
 
 
@@ -152,9 +176,27 @@ const processAllApps = async function(db) {
   try {
     await connect();
     const db = getDB();
-    await processAllApps(db);
+
+    const results = await processAllAppsSequentially(db);
+
+    console.log('\n======= FINAL SUMMARY =======');
+    for (const [appId, appResult] of Object.entries(results)) {
+      console.log(`App: ${appId}`);
+      for (const [collectionName, result] of Object.entries(appResult)) {
+        console.log(` -Collection: ${collectionName}`);
+        console.log(`Status: ${result.status}`);
+        console.log(` Total Processed: ${result.stats.totalProcessed}`);
+        console.log(`Successful Updates: ${result.stats.successCount}`);
+        console.log(`Failed Updates: ${result.stats.failedCount}`);
+        if (result.error) {
+          console.log(`    Error: ${result.error}`);
+        }
+      }
+    }
+
     process.exit(0);
   } catch (err) {
+    console.error('❌ Migration failed:', err);
     process.exit(1);
   }
 })();

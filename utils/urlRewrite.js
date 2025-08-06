@@ -22,6 +22,12 @@ const CLOUDIMG_DOMAIN_MAPPING = {
   'uat-fileserver.buildfire.com': 'bflegacy.imgix.net',
   'uat-auth.buildfire.com': 'bflegacy.imgix.net',
   'bfplugins-uat.imgix.net': 'bfplugins-uat.imgix.net',
+  'imagelibserver.s3.amazonaws.com': 'https://buildfire-uat.imgix.net',
+
+  'd1q5x1plk9guz6.cloudfront.net': 'https://bfplugins-uat.imgix.net',
+  'd3lkxgii6udy4q.cloudfront.net': 'https://bfplugins-uat.imgix.net',
+  'd26kqod42fnsx0.cloudfront.net': 'https://bfplugins-uat.imgix.net',
+
 
 };
 
@@ -40,10 +46,10 @@ const removeDuplicateCloudImgWrappers = function (inputString) {
 
 const sanitizeUrl = url => url.trim();
 
-const addQueryParams = (url, params) => {
-  const hasQuery = url.includes('?');
-  const connector = hasQuery ? '&' : '?';
-  return url + connector + params;
+const cleanFuncBound = (url) => {
+  return url.replace(/[?&]func=bound(&|$)/, (match, p1) => {
+    return p1 === '&' ? '?' : '';
+  }).replace(/\?$/, '');
 };
 
 const replaceCloudImgURLs = (inputString) => {
@@ -51,15 +57,15 @@ const replaceCloudImgURLs = (inputString) => {
   const patterns = [
     {
       regex: /https:\/\/([a-z0-9]+)\.cloudimg\.io\/s\/width\/(\d+)\/https:\/\/([^"\s]+)/gi,
-      buildUrl: (filePath, width, height) => `width=${width}`
+      buildUrl: (filePath, width, height, type) => `width=${width}`
     },
     {
       regex: /https:\/\/([a-z0-9]+)\.cloudimg\.io\/bound\/(\d+)x(\d+)\/n\/https:\/\/([^"\s]+)/gi,
-      buildUrl: (filePath, width, height) => `width=${width}&height=${height}`
+      buildUrl: (filePath, width, height, type) => `width=${width}&height=${height}`
     },
     {
       regex: /https:\/\/([a-z0-9]+)\.cloudimg\.io\/crop\/(\d+)x(\d+)\/n\/https:\/\/([^"\s]+)/gi,
-      buildUrl: (filePath, width, height) => `crop=true&width=${width}&height=${height}`
+      buildUrl: (filePath, width, height, type) => `func=crop&width=${width}&height=${height}`
     },
     {
       regex: /https:\/\/([a-z0-9]+)\.cloudimg\.io(\/[^\/]+)?\/https:\/\/([^"\s]+)/gi,
@@ -72,41 +78,40 @@ const replaceCloudImgURLs = (inputString) => {
       const fullMatch = args[0];
       const groups = args.slice(1, -2);
 
-      let width, height, sanitizedFilePath;
+      let width, height, sanitizedFilePath, type = '';
 
       if (groups.length === 2) {
-
         sanitizedFilePath = sanitizeUrl(groups[1]);
         width = undefined;
         height = undefined;
       } else if (groups.length === 3) {
         width = groups[1];
         sanitizedFilePath = sanitizeUrl(groups[2]);
-        height = undefined;
       } else {
         width = groups[1];
         height = groups[2];
         sanitizedFilePath = sanitizeUrl(groups[3]);
+        if (args[0].includes('/crop/')) {
+          type = 'crop';
+        } else if (args[0].includes('/bound/')) {
+          type = 'bound';
+        }
       }
 
       if (sanitizedFilePath.includes('images.unsplash.com')) {
-        if (width || height) {
-          let params = width ? `width=${width}` : '';
-          if (height) params += `&height=${height}`;
-          return `https://${addQueryParams(sanitizedFilePath, params)}`;
-        }
         return `https://${sanitizedFilePath}`;
       }
 
       for (const [oldDomain, newDomain] of Object.entries(CLOUDIMG_DOMAIN_MAPPING)) {
         if (sanitizedFilePath.includes(oldDomain)) {
           sanitizedFilePath = sanitizedFilePath.replace(oldDomain, newDomain);
-          const urlParams = buildUrl(sanitizedFilePath, width, height);
+          const urlParams = buildUrl(sanitizedFilePath, width, height, type);
           if (urlParams) {
-            return `https://${sanitizedFilePath}?${urlParams}`;
-          } else {
-            return `https://${sanitizedFilePath}`;
+            const [baseUrl, existingQuery] = sanitizedFilePath.split('?');
+            const mergedQuery = existingQuery ? `${existingQuery}&${urlParams}` : urlParams;
+            return `https://${baseUrl}?${mergedQuery}`;
           }
+          return `https://${sanitizedFilePath}`;
         }
       }
 
@@ -114,8 +119,8 @@ const replaceCloudImgURLs = (inputString) => {
     });
   }
 
-  return inputString;
+  return cleanFuncBound(inputString);
 };
 
+
 module.exports = replaceCloudImgURLs;
-//https://s3-us-west-2.amazonaws.com/imageserver.prod/d63e4af2-f644-11ec-b686-12565309935d/shark2.png
