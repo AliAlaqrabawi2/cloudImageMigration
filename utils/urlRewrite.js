@@ -1,3 +1,5 @@
+// TODO revisit the original script see if we've any missing cases
+
 
 // Array of cloudimg domains to replace
 const CLOUDIMG_DOMAINS = [
@@ -32,6 +34,11 @@ const CLOUDIMG_DOMAIN_MAPPING = {
 const DEFAULT_IMGIX_DOMAIN = 'https://buildfire-proxy.imgix.net/cdn/';
 
 
+// &lt; <
+// &gt; >
+
+// &amp; &
+
 const removeDuplicateCloudImgWrappers = function (inputString) {
   for (const domain of CLOUDIMG_DOMAINS) {
 
@@ -53,8 +60,13 @@ const cleanFuncBound = (url) => {
   }).replace(/\?$/, '');
 };
 
+// const he = require("he");
+//
+// const decoded = he.decode("width=798&amp;height=798");
+// console.log(decoded); // width=798&height=798
 
 const replaceCloudImgURLs = (inputString) => {
+  // below to address some stored URLS that contain amp;
   inputString = inputString.replace(/amp;/g, '')
   return inputString.replace(/https:\/\/[a-z0-9.-]*cloudimg\.io[^\s"')<>]+/gi, match => {
     let cleanedUrl = removeDuplicateCloudImgWrappers(match);
@@ -81,6 +93,9 @@ const replaceCloudImgURLs = (inputString) => {
     cleanedUrl = cleanedUrl.replace(/([?&])func=crop\b/, '$1fit=crop');
 
     let foundMapping = false;
+
+
+    // const query = {url: 'google.com', params: {width: , height:}}
 
     for (const { regex, buildUrl } of patterns) {
       if (regex.test(cleanedUrl)) {

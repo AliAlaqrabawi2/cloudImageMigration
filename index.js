@@ -1,3 +1,7 @@
+// TODO add .env.example
+// TODO appIds should be JSON
+
+
 const {connect, getDB } = require("./db");
 const logger = require('./logger');
 const replaceCloudImgURLs = require('./utils/urlRewrite');
@@ -11,12 +15,15 @@ function findCloudImagePaths(obj, path = '') {
   if (Array.isArray(obj)) {
     obj.forEach((item, index) => {
       const newPath = path ? `${path}.${index}` : `${index}`;
-      results.push(...findCloudImagePaths(item, newPath));
+      // results.push(...findCloudImagePaths(item, newPath)); // todo
+      findCloudImagePaths(item, newPath);
+
     });
   } else if (typeof obj === 'object' && obj !== null) {
     for (const key in obj) {
       const newPath = path ? `${path}.${key}` : key;
-      results.push(...findCloudImagePaths(obj[key], newPath));
+      // results.push(...findCloudImagePaths(obj[key], newPath)); todo
+      findCloudImagePaths(obj[key], newPath);
     }
   } else if (typeof obj === 'string' && obj.includes('cloudimg.io')) {
     results.push({
@@ -62,10 +69,10 @@ const processBatch = async function (docs, appId, stats, db, collectionName) {
   try {
     if (bulkOps.length > 0) {
 
-      await db.collection(collectionName).bulkWrite(bulkOps);
+      await db.collection(collectionName).bulkWrite(bulkOps); // 16 mb OR 100,000
       stats.successCount+= bulkOps.length;
     }
-  } catch (e) {
+  } catch (e) { // todo not needed catch, use the higher one
     console.error(`App ${appId} - Bulk write error in ${collectionName}: ${e}`);
     logger.error(`❌ Bulk write failed for ${collectionName} - App ${appId}: ${e.stack}`);
     stats.failedCount += bulkOps.length;
@@ -135,7 +142,7 @@ const processAllAppsSequentially = async (db) => {
   for (const appId of APP_IDS) {
     console.log(`🚀 Starting app: ${appId}`);
 
-    const collections = ['userDataClonedBlw'];
+    const collections = ['userDataClonedBlw']; // TODO add it to .env
     results[appId] = {};
 
     for (const collectionName of collections) {
@@ -187,7 +194,7 @@ const processAllAppsSequentially = async (db) => {
     console.log(`⏱️ Total migration time: ${(duration / 60).toFixed(2)} minutes`);
     console.log('\n======= FINAL SUMMARY =======');
     for (const [appId, appResult] of Object.entries(results)) {
-      console.log(`App: ${appId}`);
+      console.log(`App: ${appId}`); // todo write it to CSV file or JSON
       for (const [collectionName, result] of Object.entries(appResult)) {
         console.log(` -Collection: ${collectionName}`);
         console.log(`Status: ${result.status}`);
