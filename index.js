@@ -47,7 +47,6 @@ const processBatch = async function (docs, appId, stats, db, collectionName) {
             setObj[`data.${path}`] = newUrl;
           }
         }
-
         if (Object.keys(setObj).length > 0) {
           bulkOps.push({
             updateOne: {
@@ -55,21 +54,16 @@ const processBatch = async function (docs, appId, stats, db, collectionName) {
               update: { $set: setObj }
             }
           });
-          stats.successCount++;
-        } else {
-          stats.successCount++;
         }
       }
     }
   }
 
-
   try {
     if (bulkOps.length > 0) {
-      console.log(bulkOps.length);
-
 
       await db.collection(collectionName).bulkWrite(bulkOps);
+      stats.successCount+= bulkOps.length;
     }
   } catch (e) {
     console.error(`App ${appId} - Bulk write error in ${collectionName}: ${e}`);
@@ -114,7 +108,7 @@ const processAppForCollection = async (db, collectionName, appId) => {
       await processBatch(batch, appId, stats, db, collectionName);
       const now = new Date()
       console.log(`${now.toISOString()} Processed batch for app ${appId}, collection ${collectionName}: ${batch.length} records`);
-      skip += BATCH_SIZE;
+      skip += batch.length;
 
       const percentage = ((skip / totalRecords) * 100).toFixed(2);
       console.log(`Progress for app ${appId}: ${percentage}%`);
@@ -141,7 +135,7 @@ const processAllAppsSequentially = async (db) => {
   for (const appId of APP_IDS) {
     console.log(`🚀 Starting app: ${appId}`);
 
-    const collections = ['userData', 'pluginData'];
+    const collections = ['userDataClonedBlw'];
     results[appId] = {};
 
     for (const collectionName of collections) {
@@ -209,6 +203,7 @@ const processAllAppsSequentially = async (db) => {
     process.exit(0);
   } catch (err) {
     console.error('❌ Migration failed:', err);
+    logger.error(`❌ Migration failed: ${err.message || err.toString()}`);
     process.exit(1);
   }
 })();
