@@ -18,18 +18,19 @@ const CLOUDIMG_DOMAIN_MAPPING = {
   's3.us-west-2.amazonaws.com/pluginserver.prod': 'bfplugins.imgix.net',
   'imageserver.prod.s3.amazonaws.com': 'buildfire.imgix.net',
   's3.amazonaws.com/Kaleo.DevBucket': 'bflegacy.imgix.net',
-  'pluginserver.buildfire.com': 'bflegacy.imgix.net',
-  'uat-fileserver.buildfire.com': 'bflegacy.imgix.net',
-  'uat-auth.buildfire.com': 'bflegacy.imgix.net',
   'bfplugins-uat.imgix.net': 'bfplugins-uat.imgix.net',
-  'imagelibserver.s3.amazonaws.com': 'https://buildfire-uat.imgix.net',
+  'imagelibserver.s3.amazonaws.com': 'buildfire-uat.imgix.net',
 
-  'd1q5x1plk9guz6.cloudfront.net': 'https://bfplugins-uat.imgix.net',
-  'd3lkxgii6udy4q.cloudfront.net': 'https://bfplugins-uat.imgix.net',
-  'd26kqod42fnsx0.cloudfront.net': 'https://bfplugins-uat.imgix.net',
+  'd1q5x1plk9guz6.cloudfront.net': 'bfplugins-uat.imgix.net',
+  'd3lkxgii6udy4q.cloudfront.net': 'bfplugins-uat.imgix.net',
+  'd26kqod42fnsx0.cloudfront.net': 'bfplugins-uat.imgix.net',
 
+  'pluginserver.buildfire.com': 'bfplugins.imgix.net',
 
 };
+
+const DEFAULT_IMGIX_DOMAIN = 'https://buildfire-proxy.imgix.net/cdn/';
+
 
 const removeDuplicateCloudImgWrappers = function (inputString) {
   for (const domain of CLOUDIMG_DOMAINS) {
@@ -52,74 +53,80 @@ const cleanFuncBound = (url) => {
   }).replace(/\?$/, '');
 };
 
+
 const replaceCloudImgURLs = (inputString) => {
-  inputString = removeDuplicateCloudImgWrappers(inputString);
-  const patterns = [
-    {
-      regex: /https:\/\/([a-z0-9]+)\.cloudimg\.io\/s\/width\/(\d+)\/https:\/\/([^"\s]+)/gi,
-      buildUrl: (filePath, width, height, type) => `width=${width}`
-    },
-    {
-      regex: /https:\/\/([a-z0-9]+)\.cloudimg\.io\/bound\/(\d+)x(\d+)\/n\/https:\/\/([^"\s]+)/gi,
-      buildUrl: (filePath, width, height, type) => `width=${width}&height=${height}`
-    },
-    {
-      regex: /https:\/\/([a-z0-9]+)\.cloudimg\.io\/crop\/(\d+)x(\d+)\/n\/https:\/\/([^"\s]+)/gi,
-      buildUrl: (filePath, width, height, type) => `func=crop&width=${width}&height=${height}`
-    },
-    {
-      regex: /https:\/\/([a-z0-9]+)\.cloudimg\.io(\/[^\/]+)?\/https:\/\/([^"\s]+)/gi,
-      buildUrl: (filePath) => ''
-    }
-  ];
+  inputString = inputString.replace(/amp;/g, '')
+  return inputString.replace(/https:\/\/[a-z0-9.-]*cloudimg\.io[^\s"')<>]+/gi, match => {
+    let cleanedUrl = removeDuplicateCloudImgWrappers(match);
 
-  for (const {regex, buildUrl} of patterns) {
-    inputString = inputString.replace(regex, (...args) => {
-      const fullMatch = args[0];
-      const groups = args.slice(1, -2);
+    const patterns = [
+      {
+        regex: /https:\/\/([a-z0-9]+)\.cloudimg\.io\/s\/width\/(\d+)\/https:\/\/([^"\s]+)/i,
+        buildUrl: (filePath, width) => `width=${width}`
+      },
+      {
+        regex: /https:\/\/([a-z0-9]+)\.cloudimg\.io\/bound\/(\d+)x(\d+)\/n\/https:\/\/([^"\s]+)/i,
+        buildUrl: (filePath, width, height) => `width=${width}&height=${height}`
+      },
+      {
+        regex: /https:\/\/([a-z0-9]+)\.cloudimg\.io\/crop\/(\d+)x(\d+)\/n\/https:\/\/([^"\s]+)/i,
+        buildUrl: (filePath, width, height) => `func=crop&width=${width}&height=${height}`
+      },
+      {
+        regex: /https:\/\/([a-z0-9]+)\.cloudimg\.io(\/[^\/]+)?\/https:\/\/([^"\s]+)/i,
+        buildUrl: () => ''
+      }
+    ];
 
-      let width, height, sanitizedFilePath, type = '';
+    cleanedUrl = cleanedUrl.replace(/([?&])func=crop\b/, '$1fit=crop');
 
-      if (groups.length === 2) {
-        sanitizedFilePath = sanitizeUrl(groups[1]);
-        width = undefined;
-        height = undefined;
-      } else if (groups.length === 3) {
-        width = groups[1];
-        sanitizedFilePath = sanitizeUrl(groups[2]);
-      } else {
-        width = groups[1];
-        height = groups[2];
-        sanitizedFilePath = sanitizeUrl(groups[3]);
-        if (args[0].includes('/crop/')) {
-          type = 'crop';
-        } else if (args[0].includes('/bound/')) {
-          type = 'bound';
+    let foundMapping = false;
+
+    for (const { regex, buildUrl } of patterns) {
+      if (regex.test(cleanedUrl)) {
+        const matchParts = regex.exec(cleanedUrl);
+        let width, height, sanitizedFilePath, type = '';
+
+        if (matchParts.length === 4) {
+          sanitizedFilePath = sanitizeUrl(matchParts[3]);
+        } else if (matchParts.length === 5) {
+          width = matchParts[2];
+          sanitizedFilePath = sanitizeUrl(matchParts[4]);
+        } else {
+          width = matchParts[2];
+          height = matchParts[3];
+          sanitizedFilePath = sanitizeUrl(matchParts[4]);
         }
-      }
 
-      if (sanitizedFilePath.includes('images.unsplash.com')) {
-        return `https://${sanitizedFilePath}`;
-      }
-
-      for (const [oldDomain, newDomain] of Object.entries(CLOUDIMG_DOMAIN_MAPPING)) {
-        if (sanitizedFilePath.includes(oldDomain)) {
-          sanitizedFilePath = sanitizedFilePath.replace(oldDomain, newDomain);
-          const urlParams = buildUrl(sanitizedFilePath, width, height, type);
-          if (urlParams) {
-            const [baseUrl, existingQuery] = sanitizedFilePath.split('?');
-            const mergedQuery = existingQuery ? `${existingQuery}&${urlParams}` : urlParams;
-            return `https://${baseUrl}?${mergedQuery}`;
-          }
+        if (sanitizedFilePath.includes('images.unsplash.com')) {
           return `https://${sanitizedFilePath}`;
         }
+
+        for (const [oldDomain, newDomain] of Object.entries(CLOUDIMG_DOMAIN_MAPPING)) {
+          if (sanitizedFilePath.includes(oldDomain)) {
+            foundMapping = true;
+            sanitizedFilePath = sanitizedFilePath.replace(oldDomain, newDomain);
+            const urlParams = buildUrl(sanitizedFilePath, width, height, type);
+            if (urlParams) {
+              const [baseUrl, existingQuery] = sanitizedFilePath.split('?');
+              const mergedQuery = existingQuery ? `${existingQuery}&${urlParams}` : urlParams;
+              return `https://${baseUrl}?${mergedQuery}`;
+            }
+            return cleanFuncBound(`https://${sanitizedFilePath}`);
+          }
+        }
+
+        if (!foundMapping) {
+          const urlToEncode = `https://${sanitizedFilePath}`;
+          const [base, query] = urlToEncode.split('?');
+          const encodedBase = encodeURIComponent(base);
+          return cleanFuncBound(`${DEFAULT_IMGIX_DOMAIN}${encodedBase}${query ? '?' + query : ''}`);
+        }
       }
+    }
 
-      return fullMatch;
-    });
-  }
-
-  return cleanFuncBound(inputString);
+    return cleanFuncBound(cleanedUrl);
+  });
 };
 
 
