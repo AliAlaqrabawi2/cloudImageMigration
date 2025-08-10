@@ -2,7 +2,6 @@ const {connect, getDB } = require("./db");
 const logger = require('./logger');
 const replaceCloudImgURLs = require('./utils/urlRewrite');
 const APP_IDS = require('./AppIds');
-
 const BATCH_SIZE = Number(process.env.BATCH_SIZE);
 const STOP_ON_FAILURE = process.env.STOP_ON_FAILURE;
 
@@ -111,10 +110,15 @@ const processAppForCollection = async (db, collectionName, appId) => {
         continue;
       }
 
-      await processBatch(batch, appId, stats, db);
-      skip += BATCH_SIZE;
-    }
 
+      await processBatch(batch, appId, stats, db, collectionName);
+      const now = new Date()
+      console.log(`${now.toISOString()} Processed batch for app ${appId}, collection ${collectionName}: ${batch.length} records`);
+      skip += BATCH_SIZE;
+
+      const percentage = ((skip / totalRecords) * 100).toFixed(2);
+      console.log(`Progress for app ${appId}: ${percentage}%`);
+    }
     console.log(`✅ [${collectionName}] Finished app: ${appId}`);
     return {
       status: 'completed',
@@ -123,7 +127,6 @@ const processAppForCollection = async (db, collectionName, appId) => {
 
   } catch (e) {
     console.error(`❌ [${collectionName}] Failed app: ${appId}: ${e}`);
-    logger.error(`❌ Failed processing app ${appId}: ${e.stack}`);
     return {
       status: 'failed',
       error: e.message,
@@ -174,11 +177,20 @@ const processAllAppsSequentially = async (db) => {
 
 (async () => {
   try {
+    const startTime = new Date();
+    console.log(`🚀 Migration started at: ${startTime.toISOString()}`);
+
     await connect();
     const db = getDB();
 
     const results = await processAllAppsSequentially(db);
 
+
+    const endTime = new Date();
+    console.log(`✅ Migration completed at: ${endTime.toISOString()}`);
+
+    const duration = (endTime - startTime) / 1000;
+    console.log(`⏱️ Total migration time: ${(duration / 60).toFixed(2)} minutes`);
     console.log('\n======= FINAL SUMMARY =======');
     for (const [appId, appResult] of Object.entries(results)) {
       console.log(`App: ${appId}`);

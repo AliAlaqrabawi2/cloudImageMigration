@@ -85,17 +85,17 @@ const replaceCloudImgURLs = (inputString) => {
     for (const { regex, buildUrl } of patterns) {
       if (regex.test(cleanedUrl)) {
         const matchParts = regex.exec(cleanedUrl);
-        let width, height, sanitizedFilePath, type = '';
+        let width, height, sanitizedFilePath;
 
-        if (matchParts.length === 4) {
-          sanitizedFilePath = sanitizeUrl(matchParts[3]);
-        } else if (matchParts.length === 5) {
-          width = matchParts[2];
-          sanitizedFilePath = sanitizeUrl(matchParts[4]);
-        } else {
+        if (regex.toString().includes('bound') || regex.toString().includes('crop')) {
           width = matchParts[2];
           height = matchParts[3];
           sanitizedFilePath = sanitizeUrl(matchParts[4]);
+        } else if (regex.toString().includes('width')) {
+          width = matchParts[2];
+          sanitizedFilePath = sanitizeUrl(matchParts[3]);
+        } else {
+          sanitizedFilePath = sanitizeUrl(matchParts[3] || matchParts[4]);
         }
 
         if (sanitizedFilePath.includes('images.unsplash.com')) {
@@ -106,10 +106,14 @@ const replaceCloudImgURLs = (inputString) => {
           if (sanitizedFilePath.includes(oldDomain)) {
             foundMapping = true;
             sanitizedFilePath = sanitizedFilePath.replace(oldDomain, newDomain);
-            const urlParams = buildUrl(sanitizedFilePath, width, height, type);
-            if (urlParams) {
+
+            const params = [];
+            if (width) params.push(`width=${width}`);
+            if (height) params.push(`height=${height}`);
+
+            if (params.length) {
               const [baseUrl, existingQuery] = sanitizedFilePath.split('?');
-              const mergedQuery = existingQuery ? `${existingQuery}&${urlParams}` : urlParams;
+              const mergedQuery = existingQuery ? `${existingQuery}&${params.join('&')}` : params.join('&');
               return `https://${baseUrl}?${mergedQuery}`;
             }
             return cleanFuncBound(`https://${sanitizedFilePath}`);
