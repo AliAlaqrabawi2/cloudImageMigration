@@ -1,13 +1,12 @@
-// TODO add .env.example
-// TODO appIds should be JSON
-
-
 const {connect, getDB } = require("./db");
 const logger = require('./logger');
 const replaceCloudImgURLs = require('./utils/urlRewrite');
 const APP_IDS = require('./AppIds');
+const fs = require('fs');
+const path = require('path');
 const BATCH_SIZE = Number(process.env.BATCH_SIZE);
 const STOP_ON_FAILURE = process.env.STOP_ON_FAILURE;
+
 
 function findCloudImagePaths(obj, path = '') {
   const results = [];
@@ -15,15 +14,14 @@ function findCloudImagePaths(obj, path = '') {
   if (Array.isArray(obj)) {
     obj.forEach((item, index) => {
       const newPath = path ? `${path}.${index}` : `${index}`;
-      // results.push(...findCloudImagePaths(item, newPath)); // todo
+      results.push(...findCloudImagePaths(item, newPath));
       findCloudImagePaths(item, newPath);
 
     });
   } else if (typeof obj === 'object' && obj !== null) {
     for (const key in obj) {
       const newPath = path ? `${path}.${key}` : key;
-      // results.push(...findCloudImagePaths(obj[key], newPath)); todo
-      findCloudImagePaths(obj[key], newPath);
+      results.push(...findCloudImagePaths(obj[key], newPath));
     }
   } else if (typeof obj === 'string' && obj.includes('cloudimg.io')) {
     results.push({
@@ -34,62 +32,46 @@ function findCloudImagePaths(obj, path = '') {
   return results;
 }
 
-
 const processBatch = async function (docs, appId, stats, db, collectionName) {
   const bulkOps = [];
-
+  
   for (const doc of docs) {
     if (doc && doc.data) {
       const cloudImagePaths = findCloudImagePaths(doc.data);
-
-      if (cloudImagePaths.length > 0) {
-        stats.totalProcessed++;
-
-        const setObj = {};
-
-        for (const { path, url } of cloudImagePaths) {
-          const newUrl = replaceCloudImgURLs(url);
-
-          if (newUrl !== url) {
-            setObj[`data.${path}`] = newUrl;
-          }
-        }
-        if (Object.keys(setObj).length > 0) {
-          bulkOps.push({
-            updateOne: {
-              filter: { _id: doc._id },
-              update: { $set: setObj }
-            }
-          });
+      
+      const setObj = {};
+      
+      for (const { path, url } of cloudImagePaths) {
+        const newUrl = replaceCloudImgURLs(url);
+        if (newUrl !== url) {
+          setObj[`data.${path}`] = newUrl;
         }
       }
+      
+      setObj[`_cloudMigrated`] = true;
+
+        bulkOps.push({
+          updateOne: {
+            filter: { _id: doc._id },
+            update: { $set: setObj }
+          }
+        });
+        stats.totalProcessed++;
     }
   }
-
-  try {
-    if (bulkOps.length > 0) {
-
-      await db.collection(collectionName).bulkWrite(bulkOps); // 16 mb OR 100,000
-      stats.successCount+= bulkOps.length;
-    }
-  } catch (e) { // todo not needed catch, use the higher one
-    console.error(`App ${appId} - Bulk write error in ${collectionName}: ${e}`);
-    logger.error(`❌ Bulk write failed for ${collectionName} - App ${appId}: ${e.stack}`);
-    stats.failedCount += bulkOps.length;
-
-    if (STOP_ON_FAILURE) {
-      throw new Error(`Stopping due to failure in ${collectionName} for app ${appId}`);
-    }
+  
+  if (bulkOps.length > 0) {
+    await db.collection(collectionName).bulkWrite(bulkOps); // 16 mb OR 100,000
+    stats.successCount += bulkOps.length;
   }
-
+  
   return stats;
 };
 
 const processAppForCollection = async (db, collectionName, appId) => {
   const totalRecords = await db.collection(collectionName).count({ appId });
   console.log(`Total records for app ${appId}: ${totalRecords}`);
-
-
+  
   let skip = 0;
   let hasMore = true;
   const stats = {
@@ -97,43 +79,33 @@ const processAppForCollection = async (db, collectionName, appId) => {
     successCount: 0,
     failedCount: 0
   };
-
-  try {
-    while (hasMore) {
-      const batch = await db.collection(collectionName)
-        .find({ appId })
-        .skip(skip)
-        .limit(BATCH_SIZE)
-        .toArray();
-
-      if (batch.length === 0) {
-        hasMore = false;
-        continue;
-      }
-
-
-      await processBatch(batch, appId, stats, db, collectionName);
-      const now = new Date()
-      console.log(`${now.toISOString()} Processed batch for app ${appId}, collection ${collectionName}: ${batch.length} records`);
-      skip += batch.length;
-
-      const percentage = ((skip / totalRecords) * 100).toFixed(2);
-      console.log(`Progress for app ${appId}: ${percentage}%`);
+  
+  while (hasMore) {
+    const batch = await db.collection(collectionName)
+      .find({ appId, _cloudMigrated: null, })
+      .skip(skip)
+      .limit(BATCH_SIZE)
+      .toArray();
+    
+    if (batch.length === 0) {
+      hasMore = false;
+      continue;
     }
-    console.log(`✅ [${collectionName}] Finished app: ${appId}`);
-    return {
-      status: 'completed',
-      stats
-    };
+    
 
-  } catch (e) {
-    console.error(`❌ [${collectionName}] Failed app: ${appId}: ${e}`);
-    return {
-      status: 'failed',
-      error: e.message,
-      stats
-    };
+    await processBatch(batch, appId, stats, db, collectionName);
+      const now = new Date()
+    console.log(`${now.toISOString()} Processed batch for app ${appId}, collection ${collectionName}: ${batch.length} records`);
+    skip += batch.length;
+    
+    const percentage = ((skip / totalRecords) * 100).toFixed(2);
+    console.log(`Progress for app ${appId}: ${percentage}%`);
   }
+  console.log(`✅ [${collectionName}] Finished app: ${appId}`);
+  return {
+    status: 'completed',
+    stats
+  };
 };
 
 const processAllAppsSequentially = async (db) => {
@@ -142,7 +114,7 @@ const processAllAppsSequentially = async (db) => {
   for (const appId of APP_IDS) {
     console.log(`🚀 Starting app: ${appId}`);
 
-    const collections = ['userDataClonedBlw']; // TODO add it to .env
+    const collections = [process.env.userDataCollection, process.env.pluginDataCollection];
     results[appId] = {};
 
     for (const collectionName of collections) {
@@ -192,20 +164,7 @@ const processAllAppsSequentially = async (db) => {
 
     const duration = (endTime - startTime) / 1000;
     console.log(`⏱️ Total migration time: ${(duration / 60).toFixed(2)} minutes`);
-    console.log('\n======= FINAL SUMMARY =======');
-    for (const [appId, appResult] of Object.entries(results)) {
-      console.log(`App: ${appId}`); // todo write it to CSV file or JSON
-      for (const [collectionName, result] of Object.entries(appResult)) {
-        console.log(` -Collection: ${collectionName}`);
-        console.log(`Status: ${result.status}`);
-        console.log(` Total Processed: ${result.stats.totalProcessed}`);
-        console.log(`Successful Updates: ${result.stats.successCount}`);
-        console.log(`Failed Updates: ${result.stats.failedCount}`);
-        if (result.error) {
-          console.log(`    Error: ${result.error}`);
-        }
-      }
-    }
+    downloadResultFile(results);
 
     process.exit(0);
   } catch (err) {
@@ -214,3 +173,25 @@ const processAllAppsSequentially = async (db) => {
     process.exit(1);
   }
 })();
+
+
+const downloadResultFile = (results)=> {
+
+  const csvRows = [
+    'AppId,Collection,Status,TotalProcessed,SuccessfulUpdates,FailedUpdates,Error'
+  ];
+  for (const [appId, appResult] of Object.entries(results)) {
+    for (const [collectionName, result] of Object.entries(appResult)) {
+      csvRows.push([
+        appId,
+        collectionName,
+        result.status,
+        result.stats.totalProcessed,
+        result.stats.successCount,
+        result.stats.failedCount,
+        result.error ? `"${result.error.replace(/"/g, '""')}"` : ''
+      ].join(','));
+    }
+  }
+  fs.writeFileSync(path.join(__dirname, 'migration_results.csv'), csvRows.join('\n'));
+}

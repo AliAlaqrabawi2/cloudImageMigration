@@ -2,13 +2,8 @@ const { MongoClient } = require('mongodb');
 const logger = require('./logger');
 require('dotenv').config();
 
-let mongoUri = '';
-if (process.env.debug) {
-  mongoUri = process.env.UAT_URI;
-}
-else {
-  mongoUri = process.env.PROD_URI;
-}
+let mongoUri =  process.env.MONGO_URI;
+
 const client = new MongoClient(mongoUri);
 let db;
 
