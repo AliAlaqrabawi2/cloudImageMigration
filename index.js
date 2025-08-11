@@ -1,7 +1,7 @@
 const {connect, getDB } = require("./db");
 const logger = require('./logger');
 const replaceCloudImgURLs = require('./utils/urlRewrite');
-const APP_IDS = require('./AppIds');
+const APP_IDS = require('./appIds');
 const fs = require('fs');
 const path = require('path');
 const BATCH_SIZE = Number(process.env.BATCH_SIZE);
@@ -15,7 +15,6 @@ function findCloudImagePaths(obj, path = '') {
     obj.forEach((item, index) => {
       const newPath = path ? `${path}.${index}` : `${index}`;
       results.push(...findCloudImagePaths(item, newPath));
-      findCloudImagePaths(item, newPath);
 
     });
   } else if (typeof obj === 'object' && obj !== null) {
@@ -48,7 +47,7 @@ const processBatch = async function (docs, appId, stats, db, collectionName) {
         }
       }
       
-      setObj[`_cloudMigrated`] = true;
+      setObj[`cloudImageMigrated`] = true;
 
         bulkOps.push({
           updateOne: {
@@ -69,7 +68,7 @@ const processBatch = async function (docs, appId, stats, db, collectionName) {
 };
 
 const processAppForCollection = async (db, collectionName, appId) => {
-  const totalRecords = await db.collection(collectionName).countDocuments({ appId, _cloudMigrated: null });
+  const totalRecords = await db.collection(collectionName).countDocuments({ appId, cloudImageMigrated: null });
   console.log(`Total records for app ${appId}: ${totalRecords}`);
   
   let lastId = null;
@@ -81,7 +80,7 @@ const processAppForCollection = async (db, collectionName, appId) => {
   };
   
   while (hasMore) {
-    const query = { appId, _cloudMigrated: null };
+    const query = { appId, cloudImageMigrated: null };
     if (lastId) {
       query._id = { $gt: lastId };
     }
