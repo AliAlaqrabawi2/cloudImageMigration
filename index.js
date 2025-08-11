@@ -69,10 +69,10 @@ const processBatch = async function (docs, appId, stats, db, collectionName) {
 };
 
 const processAppForCollection = async (db, collectionName, appId) => {
-  const totalRecords = await db.collection(collectionName).count({ appId });
+  const totalRecords = await db.collection(collectionName).countDocuments({ appId, _cloudMigrated: null });
   console.log(`Total records for app ${appId}: ${totalRecords}`);
   
-  let skip = 0;
+  let lastId = null;
   let hasMore = true;
   const stats = {
     totalProcessed: 0,
@@ -81,9 +81,14 @@ const processAppForCollection = async (db, collectionName, appId) => {
   };
   
   while (hasMore) {
+    const query = { appId, _cloudMigrated: null };
+    if (lastId) {
+      query._id = { $gt: lastId };
+    }
+    
     const batch = await db.collection(collectionName)
-      .find({ appId, _cloudMigrated: null, })
-      .skip(skip)
+      .find(query)
+      .sort({ _id: 1 })
       .limit(BATCH_SIZE)
       .toArray();
     
@@ -92,15 +97,16 @@ const processAppForCollection = async (db, collectionName, appId) => {
       continue;
     }
     
-
     await processBatch(batch, appId, stats, db, collectionName);
-      const now = new Date()
-    console.log(`${now.toISOString()} Processed batch for app ${appId}, collection ${collectionName}: ${batch.length} records`);
-    skip += batch.length;
     
-    const percentage = ((skip / totalRecords) * 100).toFixed(2);
+    lastId = batch[batch.length - 1]._id;
+    
+    const percentage = ((stats.totalProcessed / totalRecords) * 100).toFixed(2);
+    console.log(`Processed until now for app ${appId} [${collectionName}]: ${stats.totalProcessed}`);
+    console.log(`${new Date().toISOString()} Processed batch for app ${appId}, collection ${collectionName}: ${batch.length} records`);
     console.log(`Progress for app ${appId}: ${percentage}%`);
   }
+  
   console.log(`✅ [${collectionName}] Finished app: ${appId}`);
   return {
     status: 'completed',
