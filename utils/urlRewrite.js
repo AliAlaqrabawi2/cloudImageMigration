@@ -87,7 +87,6 @@ const replaceCloudImgURLs = (inputString) => {
     let foundMapping = false;
     
     
-    // const query = {url: 'google.com', params: {width: , height:}}
     
     for (const { regex, buildUrl } of patterns) {
       if (regex.test(cleanedUrl)) {
@@ -128,11 +127,22 @@ const replaceCloudImgURLs = (inputString) => {
         }
         
         if (!foundMapping) {
-          const urlToEncode = `https://${sanitizedFilePath}`;
-          const [base, query] = urlToEncode.split('?');
+          let urlToEncode = `https://${sanitizedFilePath}`;
+          let [base, query] = urlToEncode.split('?');
+          
+          if (!query) {
+            const params = [];
+            if (width) params.push(`width=${width}`);
+            if (height) params.push(`height=${height}`);
+            if (params.length) {
+              query = params.join('&');
+            }
+          }
+          
           const encodedBase = encodeURIComponent(base);
           return cleanFuncBound(`${DEFAULT_IMGIX_DOMAIN}${encodedBase}${query ? '?' + query : ''}`);
         }
+        
       }
     }
     

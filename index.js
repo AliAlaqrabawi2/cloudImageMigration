@@ -39,16 +39,18 @@ const processBatch = async function (docs, appId, stats, db, collectionName) {
       const cloudImagePaths = findCloudImagePaths(doc.data);
       
       const setObj = {};
+      let cloudImageMigrated = 0;
       
       for (const { path, url } of cloudImagePaths) {
         const newUrl = replaceCloudImgURLs(url);
         if (newUrl !== url) {
           setObj[`data.${path}`] = newUrl;
+          cloudImageMigrated = 1;
         }
       }
       
-      setObj[`cloudImageMigrated`] = true;
-
+        setObj[`cloudImageMigrated`] = cloudImageMigrated;
+      
         bulkOps.push({
           updateOne: {
             filter: { _id: doc._id },
@@ -69,7 +71,7 @@ const processBatch = async function (docs, appId, stats, db, collectionName) {
 
 const processAppForCollection = async (db, collectionName, appId) => {
   const totalRecords = await db.collection(collectionName).countDocuments({ appId, cloudImageMigrated: null });
-  console.log(`Total records for app ${appId}: ${totalRecords}`);
+  logger.info(`Total records for app ${appId}: ${totalRecords}`);
   
   let lastId = null;
   let hasMore = true;
@@ -101,12 +103,11 @@ const processAppForCollection = async (db, collectionName, appId) => {
     lastId = batch[batch.length - 1]._id;
     
     const percentage = ((stats.totalProcessed / totalRecords) * 100).toFixed(2);
-    console.log(`Processed until now for app ${appId} [${collectionName}]: ${stats.totalProcessed}`);
-    console.log(`${new Date().toISOString()} Processed batch for app ${appId}, collection ${collectionName}: ${batch.length} records`);
-    console.log(`Progress for app ${appId}: ${percentage}%`);
+    logger.info(`Processed until now for app ${appId} [${collectionName}]: ${stats.totalProcessed}`);
+    logger.info(`Progress for app ${appId}: ${percentage}%`);
   }
   
-  console.log(`✅ [${collectionName}] Finished app: ${appId}`);
+  logger.info(`✅ [${collectionName}] Finished app: ${appId}`);
   return {
     status: 'completed',
     stats
@@ -117,20 +118,20 @@ const processAllAppsSequentially = async (db) => {
   const results = {};
 
   for (const appId of APP_IDS) {
-    console.log(`🚀 Starting app: ${appId}`);
+    logger.info(`🚀 Starting app: ${appId}`);
 
     const collections = [process.env.userDataCollection, process.env.pluginDataCollection];
     results[appId] = {};
 
     for (const collectionName of collections) {
-      console.log(`→ Processing collection: ${collectionName}`);
+      logger.info(`→ Processing collection: ${collectionName}`);
 
       try {
         const result = await processAppForCollection(db, collectionName, appId);
         results[appId][collectionName] = result;
 
         if (result.status === 'failed' && STOP_ON_FAILURE) {
-          console.log(`🛑 Stopping because of failure on ${appId} - ${collectionName}`);
+          logger.info(`🛑 Stopping because of failure on ${appId} - ${collectionName}`);
           return results;
         }
       } catch (e) {
@@ -142,7 +143,7 @@ const processAllAppsSequentially = async (db) => {
         };
 
         if (STOP_ON_FAILURE) {
-          console.log(`🛑 Stopping due to unexpected error on ${appId} - ${collectionName}`);
+          logger.error(`🛑 Stopping due to unexpected error on ${appId} - ${collectionName}`);
           return results;
         }
       }
@@ -156,7 +157,7 @@ const processAllAppsSequentially = async (db) => {
 (async () => {
   try {
     const startTime = new Date();
-    console.log(`🚀 Migration started at: ${startTime.toISOString()}`);
+    logger.info(`🚀 Migration started at: ${startTime.toISOString()}`);
 
     await connect();
     const db = getDB();
@@ -165,10 +166,10 @@ const processAllAppsSequentially = async (db) => {
 
 
     const endTime = new Date();
-    console.log(`✅ Migration completed at: ${endTime.toISOString()}`);
+    logger.info(`✅ Migration completed at: ${endTime.toISOString()}`);
 
     const duration = (endTime - startTime) / 1000;
-    console.log(`⏱️ Total migration time: ${(duration / 60).toFixed(2)} minutes`);
+    logger.info(`⏱️ Total migration time: ${(duration / 60).toFixed(2)} minutes`);
     downloadResultFile(results);
 
     process.exit(0);
