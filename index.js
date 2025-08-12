@@ -119,8 +119,9 @@ const processAllAppsSequentially = async (db) => {
 
   for (const appId of APP_IDS) {
     logger.info(`🚀 Starting app: ${appId}`);
+    
 
-    const collections = [process.env.userDataCollection, process.env.pluginDataCollection];
+    const collections = [process.env.USER_DATA_COLLECTION, process.env.PLUGIN_DATA_COLLECTION];
     results[appId] = {};
 
     for (const collectionName of collections) {
