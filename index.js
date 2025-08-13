@@ -103,7 +103,7 @@ const processAppForCollection = async (db, collectionName, appId) => {
     lastId = batch[batch.length - 1]._id;
     
     const percentage = ((stats.totalProcessed / totalRecords) * 100).toFixed(2);
-    logger.info(`About to update ${stats.totalProcessed} data collection for app ${appId} [${collectionName}]\n`);
+    logger.info(`✅ Processed until now ${stats.totalProcessed} data collection for app ${appId} [${collectionName}]\n`);
     logger.info(`Progress for app ${appId}: ${percentage}%\n`);
   }
   
