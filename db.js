@@ -11,7 +11,7 @@ async function connect() {
   try {
     await client.connect();
     db = client.db(process.env.DB_NAME);
-    logger.info('✅ Connected to MongoDB');
+    logger.info('✅ Connected to MongoDB\n');
     return db;
   } catch (err) {
     logger.error('❌ MongoDB connection failed:', err);

@@ -71,7 +71,7 @@ const processBatch = async function (docs, appId, stats, db, collectionName) {
 
 const processAppForCollection = async (db, collectionName, appId) => {
   const totalRecords = await db.collection(collectionName).countDocuments({ appId, cloudImageMigrated: null });
-  logger.info(`Total records for app ${appId}: ${totalRecords}`);
+  logger.info(`Total records for app ${appId} in ${collectionName} Collection : ${totalRecords}\n`);
   
   let lastId = null;
   let hasMore = true;
@@ -103,11 +103,11 @@ const processAppForCollection = async (db, collectionName, appId) => {
     lastId = batch[batch.length - 1]._id;
     
     const percentage = ((stats.totalProcessed / totalRecords) * 100).toFixed(2);
-    logger.info(`Processed until now for app ${appId} [${collectionName}]: ${stats.totalProcessed}`);
-    logger.info(`Progress for app ${appId}: ${percentage}%`);
+    logger.info(`About to update ${stats.totalProcessed} data collection for app ${appId} [${collectionName}]\n`);
+    logger.info(`Progress for app ${appId}: ${percentage}%\n`);
   }
   
-  logger.info(`✅ [${collectionName}] Finished app: ${appId}`);
+  logger.info(`✅ [${collectionName}] Finished app: ${appId}\n`);
   return {
     status: 'completed',
     stats
@@ -118,14 +118,14 @@ const processAllAppsSequentially = async (db) => {
   const results = {};
 
   for (const appId of APP_IDS) {
-    logger.info(`🚀 Starting app: ${appId}`);
+    logger.info(`🚀 Starting app: ${appId}\n`);
     
 
     const collections = [process.env.USER_DATA_COLLECTION, process.env.PLUGIN_DATA_COLLECTION];
     results[appId] = {};
 
     for (const collectionName of collections) {
-      logger.info(`→ Processing collection: ${collectionName}`);
+      logger.info(`→ Processing collection: ${collectionName}\n`);
 
       try {
         const result = await processAppForCollection(db, collectionName, appId);
@@ -162,7 +162,7 @@ const processAllAppsSequentially = async (db) => {
       return;
     }
     const startTime = new Date();
-    logger.info(`🚀 Migration started at: ${startTime.toISOString()}`);
+    logger.info(`🚀 Migration started at: ${startTime.toISOString()}\n`);
 
     await connect();
     const db = getDB();
@@ -171,10 +171,10 @@ const processAllAppsSequentially = async (db) => {
 
 
     const endTime = new Date();
-    logger.info(`✅ Migration completed at: ${endTime.toISOString()}`);
+    logger.info(`✅ Migration completed at: ${endTime.toISOString()}\n`);
 
     const duration = (endTime - startTime) / 1000;
-    logger.info(`⏱️ Total migration time: ${(duration / 60).toFixed(2)} minutes`);
+    logger.info(`⏱️ Total migration time: ${(duration / 60).toFixed(2)} minutes\n`);
     downloadResultFile(results);
 
     process.exit(0);
@@ -197,9 +197,9 @@ async function testDBConnection() {
     const userDataDoc = await db.collection(userDataCollection).findOne({});
     const pluginDataDoc = await db.collection(pluginDataCollection).findOne({});
     
-    logger.info(`Connection test succeeded.`);
-    logger.info(`Sample userData document: ${userDataDoc ? JSON.stringify(userDataDoc).slice(0, 200) : 'No documents found'}`);
-    logger.info(`Sample pluginData document: ${pluginDataDoc ? JSON.stringify(pluginDataDoc).slice(0, 200) : 'No documents found'}`);
+    logger.info(`Connection test succeeded.\n`);
+    logger.info(`Sample userData document: ${userDataDoc ? JSON.stringify(userDataDoc).slice(0, 200) : 'No documents found'}\n`);
+    logger.info(`Sample pluginData document: ${pluginDataDoc ? JSON.stringify(pluginDataDoc).slice(0, 200) : 'No documents found'}\n`);
     
     process.exit(0);
   } catch (err) {
