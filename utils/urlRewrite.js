@@ -58,8 +58,9 @@ const cleanFuncBound = (url) => {
 
 
 const replaceCloudImgURLs = (inputString) => {
-  // below to address some stored URLS that contain amp;
-   inputString = he.decode(inputString);
+  inputString = inputString.replace(/amp;/g, '');
+  //inputString = he.decode(inputString);
+  
   return inputString.replace(/https:\/\/[a-z0-9.-]*cloudimg\.io[^\s"')<>]+/gi, match => {
     let cleanedUrl = removeDuplicateCloudImgWrappers(match);
     
