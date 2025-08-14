@@ -1,12 +1,12 @@
 // TODO revisit the original script see if we've any missing cases
-const he = require("he");
 
 // Array of cloudimg domains to replace
 const CLOUDIMG_DOMAINS = [
   'https://alnnibitpo.cloudimg.io/v7/',
   'https://alnnibitpo.cloudimg.io/',
   'https://czi3m2qn.cloudimg.io/cdn/n/n/',
-  'https://acbbesnfco.cloudimg.io/v7'
+  'https://acbbesnfco.cloudimg.io/v7',
+  'https://czi3m2qn.cloudimg.io/',
 ];
 
 const CLOUDIMG_DOMAIN_MAPPING = {
@@ -31,8 +31,29 @@ const CLOUDIMG_DOMAIN_MAPPING = {
   
 };
 
-const DEFAULT_IMGIX_DOMAIN = 'https://buildfire-proxy.imgix.net/cdn/';
+const IMGIX_DOMAINS = [
+  'https://buildfire-proxy.imgix.net/cdn/',
+  'https://buildfire.imgix.net/',
+  'https://bfplugins.imgix.net/',
+  'https://bflegacy.imgix.net/',
+  'https://buildfire-uat.imgix.net/',
+  'https://bfplugins-uat.imgix.net/',
 
+];
+
+const removeImgixDomainsFromUrl = (inputString) => {
+    for (const domain of IMGIX_DOMAINS) {
+      const parts = inputString.split(domain);
+      if (parts.length == 2) {
+        inputString = parts[parts.length - 1];
+        break;
+      }
+    }
+  return inputString;
+};
+
+
+const DEFAULT_IMGIX_DOMAIN = 'https://buildfire-proxy.imgix.net/cdn/';
 
 
 const removeDuplicateCloudImgWrappers = function (inputString) {
@@ -48,21 +69,73 @@ const removeDuplicateCloudImgWrappers = function (inputString) {
   return inputString;
 };
 
+const safeDecode = (url) => {
+  try {
+    return decodeURIComponent(url);
+  } catch (e) {
+    return url;
+  }
+};
+
 const sanitizeUrl = url => url.trim();
 
-const cleanFuncBound = (url) => {
-  return url.replace(/[?&]func=bound(&|$)/, (match, p1) => {
+const sanitizesUrlQuery = (url) => {
+  
+  url = url.replace(/[?&]func=bound(&|$)/, (match, p1) => {
     return p1 === '&' ? '?' : '';
   }).replace(/\?$/, '');
+  
+  let lastWidth = null;
+  let lastHeight = null;
+  
+  const widthIndex = url.lastIndexOf('width=');
+  if (widthIndex !== -1) {
+    const rest = url.substring(widthIndex + 6);
+    const end = rest.search(/&|$|\?/);
+    lastWidth = rest.substring(0, end === -1 ? rest.length : end);
+  }
+  
+  const heightIndex = url.lastIndexOf('height=');
+  if (heightIndex !== -1) {
+    const rest = url.substring(heightIndex + 7);
+    const end = rest.search(/&|$|\?/);
+    lastHeight = rest.substring(0, end === -1 ? rest.length : end);
+  }
+  
+  const urlObj = new URL(url.split('?')[0]);
+  const params = urlObj.searchParams;
+  
+  const fitValue = params.get('fit');
+  
+  const paramsToRemove = Array.from(params.keys());
+  paramsToRemove.forEach(param => params.delete(param));
+  
+  if (fitValue) params.set('fit', fitValue);
+  
+  if (lastWidth) params.set('width', lastWidth);
+  if (lastHeight) params.set('height', lastHeight);
+  
+  return urlObj.toString();
 };
 
 
 const replaceCloudImgURLs = (inputString) => {
-  inputString = inputString.replace(/amp;/g, '');
-  //inputString = he.decode(inputString);
+  if (inputString.startsWith('https')) {
+    inputString = inputString.replace(/https:\/(?!\/)/gi, 'https://'); // for bad urls with one '/', ex: https:/s3.amazonaws.com/...
+    inputString = removeImgixDomainsFromUrl(inputString);
+    inputString = safeDecode(inputString);
+    inputString = inputString.replace(/ /g, '%20').replace(/\(/g, '%28').replace(/\)/g, '%29');
+  }
   
   return inputString.replace(/https:\/\/[a-z0-9.-]*cloudimg\.io[^\s"')<>]+/gi, match => {
-    let cleanedUrl = removeDuplicateCloudImgWrappers(match);
+    
+    let cleanedUrl = safeDecode(match); // decode again for the images in the wysiwyg
+    cleanedUrl = cleanedUrl.replace(/ /g, '%20').replace(/\(/g, '%28').replace(/\)/g, '%29');
+    cleanedUrl = cleanedUrl.replace(/amp;/g, '');
+    cleanedUrl = removeDuplicateCloudImgWrappers(cleanedUrl);
+    cleanedUrl = cleanedUrl.replace(/https:\/(?!\/)/gi, 'https://');
+    
+    
     
     const patterns = [
       {
@@ -78,7 +151,7 @@ const replaceCloudImgURLs = (inputString) => {
         buildUrl: (filePath, width, height) => `func=crop&width=${width}&height=${height}`
       },
       {
-        regex: /https:\/\/([a-z0-9]+)\.cloudimg\.io(\/[^\/]+)?\/https:\/\/([^"\s]+)/i,
+        regex: /https:\/\/([a-z0-9]+)\.cloudimg\.io(\/.*)?\/https:\/\/([^"\s]+)/i,
         buildUrl: () => ''
       }
     ];
@@ -121,9 +194,9 @@ const replaceCloudImgURLs = (inputString) => {
             if (params.length) {
               const [baseUrl, existingQuery] = sanitizedFilePath.split('?');
               const mergedQuery = existingQuery ? `${existingQuery}&${params.join('&')}` : params.join('&');
-              return `https://${baseUrl}?${mergedQuery}`;
+              return sanitizesUrlQuery(`https://${baseUrl}?${mergedQuery}`);
             }
-            return cleanFuncBound(`https://${sanitizedFilePath}`);
+            return sanitizesUrlQuery(`https://${sanitizedFilePath}`);
           }
         }
         
@@ -141,13 +214,13 @@ const replaceCloudImgURLs = (inputString) => {
           }
           
           const encodedBase = encodeURIComponent(base);
-          return cleanFuncBound(`${DEFAULT_IMGIX_DOMAIN}${encodedBase}${query ? '?' + query : ''}`);
+          return sanitizesUrlQuery(`${DEFAULT_IMGIX_DOMAIN}${encodedBase}${query ? '?' + query : ''}`);
         }
         
       }
     }
     
-    return cleanFuncBound(cleanedUrl);
+    return sanitizesUrlQuery(cleanedUrl);
   });
 };
 

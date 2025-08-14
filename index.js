@@ -70,7 +70,7 @@ const processBatch = async function (docs, appId, stats, db, collectionName) {
 };
 
 const processAppForCollection = async (db, collectionName, appId) => {
-  const totalRecords = await db.collection(collectionName).countDocuments({ appId, cloudImageMigrated: null });
+  const totalRecords = await db.collection(collectionName).countDocuments({ appId });
   logger.info(`Total records for app ${appId} in ${collectionName} Collection : ${totalRecords}\n`);
   
   let lastId = null;
@@ -82,7 +82,7 @@ const processAppForCollection = async (db, collectionName, appId) => {
   };
   
   while (hasMore) {
-    const query = { appId, cloudImageMigrated: null };
+    const query = { appId };
     if (lastId) {
       query._id = { $gt: lastId };
     }
