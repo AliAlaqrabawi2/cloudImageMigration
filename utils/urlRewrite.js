@@ -115,7 +115,24 @@ const sanitizesUrlQuery = (url) => {
   if (lastWidth) params.set('width', lastWidth);
   if (lastHeight) params.set('height', lastHeight);
   
-  return urlObj.toString();
+  return normalizeUrl(urlObj.toString());
+};
+
+const normalizeUrl = (url) => {
+  try {
+    const parsed = new URL(url);
+    
+    const encodedPath = parsed.pathname
+      .split('/')
+      .map(segment => encodeURIComponent(decodeURIComponent(segment)))
+      .join('/');
+    
+    const encodedQuery = parsed.searchParams.toString();
+    
+    return `${parsed.protocol}//${parsed.host}${encodedPath}${encodedQuery ? '?' + encodedQuery : ''}`;
+  } catch (e) {
+    return url;
+  }
 };
 
 
