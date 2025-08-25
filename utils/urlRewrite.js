@@ -156,19 +156,19 @@ const replaceCloudImgURLs = (inputString) => {
     
     const patterns = [
       {
-        regex: /https:\/\/([a-z0-9]+)\.cloudimg\.io\/s\/width\/(\d+)\/https:\/\/([^"\s]+)/i,
+        regex: /https:\/\/([a-z0-9]+)\.cloudimg\.io\/s\/width\/(\d+)\/https?:\/\/([^"\s]+)/i,
         buildUrl: (filePath, width) => `width=${width}`
       },
       {
-        regex: /https:\/\/([a-z0-9]+)\.cloudimg\.io\/bound\/(\d+)x(\d+)\/n\/https:\/\/([^"\s]+)/i,
+        regex: /https:\/\/([a-z0-9]+)\.cloudimg\.io\/bound\/(\d+)x(\d+)\/n\/https?:\/\/([^"\s]+)/i,
         buildUrl: (filePath, width, height) => `width=${width}&height=${height}`
       },
       {
-        regex: /https:\/\/([a-z0-9]+)\.cloudimg\.io\/crop\/(\d+)x(\d+)\/n\/https:\/\/([^"\s]+)/i,
+        regex: /https:\/\/([a-z0-9]+)\.cloudimg\.io\/crop\/(\d+)x(\d+)\/n\/https?:\/\/([^"\s]+)/i,
         buildUrl: (filePath, width, height) => `func=crop&width=${width}&height=${height}`
       },
       {
-        regex: /https:\/\/([a-z0-9]+)\.cloudimg\.io(\/.*)?\/https:\/\/([^"\s]+)/i,
+        regex: /https:\/\/([a-z0-9]+)\.cloudimg\.io(\/.*)?\/https?:\/\/([^"\s]+)/i,
         buildUrl: () => ''
       }
     ];
